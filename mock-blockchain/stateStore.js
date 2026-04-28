@@ -1,10 +1,23 @@
-const STORAGE_KEY = 'sn1.mockchain.state.v1';
+const STORAGE_KEY = 'sn1.mockchain.state.v2';
 
 const defaultState = {
   wallets: {},
   tokens: [],
   transfers: [],
+  trades: [],
+  treasury: {
+    snl1FeesCollected: 0,
+  },
 };
+
+const normalizeState = (raw = {}) => ({
+  ...structuredClone(defaultState),
+  ...raw,
+  treasury: {
+    ...defaultState.treasury,
+    ...(raw?.treasury || {}),
+  },
+});
 
 export const readState = () => {
   if (typeof window === 'undefined') {
@@ -15,7 +28,7 @@ export const readState = () => {
   if (!raw) return structuredClone(defaultState);
 
   try {
-    return { ...structuredClone(defaultState), ...JSON.parse(raw) };
+    return normalizeState(JSON.parse(raw));
   } catch (error) {
     console.warn('Failed to parse mock-chain state:', error);
     return structuredClone(defaultState);
