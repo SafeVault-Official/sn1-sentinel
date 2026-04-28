@@ -49,29 +49,30 @@ const MiniChart = ({ data = [] }) => {
 export default function AppShell() {
   const { session, wallets, availability, connect, disconnect, refreshBalance } = useWalletSession();
   const [dashboard, setDashboard] = useState({ profile: null, tokens: [] });
-  
-  // Market ve Finansal State (Codex)
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const [reloadError, setReloadError] = useState('');
+
   const [marketTokens, setMarketTokens] = useState([]);
   const [tradeAmount, setTradeAmount] = useState({});
   const [tradeStatus, setTradeStatus] = useState('');
+  const [isTrading, setIsTrading] = useState(false);
   const [treasury, setTreasury] = useState({ snl1FeesCollected: 0 });
 
-  // Büyüme ve Sosyal State (Main)
-  const [growth, setGrowth] = useState({ 
-    tokens: [], 
-    leaderboards: { users: {}, tokens: {} }, 
-    walletStats: [], 
-    activity: [] 
+  const [growth, setGrowth] = useState({
+    tokens: [],
+    leaderboards: { users: {}, tokens: {} },
+    walletStats: [],
+    activity: [],
   });
   const [selectedTokenId, setSelectedTokenId] = useState('');
   const [selectedToken, setSelectedToken] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [referralJoined, setReferralJoined] = useState(false);
+  const [connectError, setConnectError] = useState('');
 
-  // Chat Socket
   const { messages, sendMessage, connected, joinRoom, activeRoom, rooms, error } = useChatSocket(
-    dashboard.profile, 
-    dashboard.tokens
+    dashboard.profile,
+    dashboard.tokens,
   );
 
   const loadMarket = async () => {
@@ -86,11 +87,19 @@ export default function AppShell() {
   };
 
   const reload = async () => {
-    await refreshBalance();
-    const snapshot = await getDashboardSnapshot(session);
-    setDashboard(snapshot);
-    await loadMarket();
-    await loadGrowth();
+    setReloadError('');
+    setIsBootstrapping(true);
+    try {
+      await refreshBalance();
+      const snapshot = await getDashboardSnapshot(session);
+      setDashboard(snapshot);
+      await loadMarket();
+      await loadGrowth();
+    } catch (e) {
+      setReloadError(e?.message || 'Failed to refresh dashboard state.');
+    } finally {
+      setIsBootstrapping(false);
+    }
   };
 
   useEffect(() => {
@@ -102,7 +111,10 @@ export default function AppShell() {
   }, [messages]);
 
   useEffect(() => {
-    const syncOnStorage = () => { loadMarket(); loadGrowth(); };
+    const syncOnStorage = () => {
+      loadMarket();
+      loadGrowth();
+    };
     window.addEventListener('sn1:state-updated', syncOnStorage);
     return () => window.removeEventListener('sn1:state-updated', syncOnStorage);
   }, [messages]);
@@ -127,8 +139,6 @@ export default function AppShell() {
     }
   }, [referralJoined]);
 
-  const walletTokenBalances = useMemo(() => session.balance?.tokenBalances || {}, [session.balance]);
-  
   const myReputation = useMemo(
     () => growth.walletStats.find((item) => item.walletAddress === session.address),
     [growth.walletStats, session.address],
@@ -136,6 +146,18 @@ export default function AppShell() {
 
   const handleTrade = async (tokenAddress, side) => {
     const amount = Number(tradeAmount[tokenAddress] || 10);
+
+    if (!session.networkStatus?.ok) {
+      setTradeStatus('Error: switch to a supported network before trading.');
+      return;
+    }
+
+    if (!amount || amount <= 0) {
+      setTradeStatus('Error: amount must be greater than zero.');
+      return;
+    }
+
+    setIsTrading(true);
     try {
       if (side === 'buy') {
         await buyLaunchpadToken({ tokenAddress, walletAddress: session.address, amount });
@@ -146,13 +168,24 @@ export default function AppShell() {
       await reload();
     } catch (err) {
       setTradeStatus(`Error: ${err.message}`);
+    } finally {
+      setIsTrading(false);
     }
   };
 
   const shareToken = async (tokenId) => {
     const shareLink = await getTokenShareLink({ tokenId, walletAddress: session.address });
     await navigator.clipboard.writeText(shareLink);
-    alert("Share link copied to clipboard!");
+    alert('Share link copied to clipboard!');
+  };
+
+  const handleConnect = async (walletType) => {
+    setConnectError('');
+    try {
+      await connect(walletType);
+    } catch (e) {
+      setConnectError(e?.message || 'Failed to connect wallet.');
+    }
   };
 
   return (
@@ -172,17 +205,35 @@ export default function AppShell() {
             <span className="rounded bg-slate-800 px-3 py-1 text-xs">Wallet: {shortWallet(session.address)}</span>
             <span className="rounded bg-slate-800 px-3 py-1 text-xs text-cyan-300">SNL1: {session.balance.snl1Balance.toLocaleString()}</span>
             <span className="rounded bg-indigo-900 px-3 py-1 text-xs">Reputation: {myReputation?.reputationLevel || 'Newbie'}</span>
+            <span className={`rounded px-3 py-1 text-xs ${session.networkStatus?.ok ? 'bg-emerald-900 text-emerald-200' : 'bg-amber-900 text-amber-200'}`}>
+              Network: {session.chainId || 'Not selected'}
+            </span>
+            {!!notifications.length && <span className="rounded bg-cyan-950 px-3 py-1 text-xs">Alerts: {notifications.length}</span>}
             {session.isConnected && <button className="rounded bg-rose-400 px-3 py-1 text-xs text-slate-950" onClick={disconnect}>Disconnect</button>}
           </div>
+          {!session.networkStatus?.ok && session.isConnected ? (
+            <p className="mt-3 rounded border border-amber-500/40 bg-amber-950/40 p-2 text-xs text-amber-200">
+              {session.networkStatus?.reason || 'Unsupported network selected. Some actions are disabled.'}
+            </p>
+          ) : null}
+          {session.error ? (
+            <p className="mt-3 rounded border border-rose-500/40 bg-rose-950/40 p-2 text-xs text-rose-200">
+              Wallet error: {session.error.message}
+            </p>
+          ) : null}
+          {reloadError ? (
+            <p className="mt-3 rounded border border-rose-500/40 bg-rose-950/40 p-2 text-xs text-rose-200">
+              {reloadError}
+            </p>
+          ) : null}
         </header>
 
         {session.isConnected ? (
           <section className="grid gap-4 lg:grid-cols-3">
-            {/* SOL KOLON: Profil ve Factory */}
             <div className="space-y-4">
               <AvatarBadge avatar={dashboard.profile?.avatar} />
               <TokenFactoryPanel walletAddress={session.address} onCreated={reload} />
-              
+
               <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
                 <h3 className="font-semibold mb-2">My Achievements</h3>
                 <div className="flex flex-wrap gap-2">
@@ -194,10 +245,10 @@ export default function AppShell() {
               </article>
             </div>
 
-            {/* ORTA KOLON: Market ve Trendler */}
             <div className="space-y-4 lg:col-span-2">
               <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
                 <h3 className="text-lg font-semibold mb-3">Live Bonding Curve Market</h3>
+                {isBootstrapping ? <p className="mb-3 text-xs text-cyan-300">Loading market data...</p> : null}
                 <div className="grid gap-3 md:grid-cols-2">
                   {marketTokens.map((token) => (
                     <article key={token.id} className="rounded-xl border border-slate-700 bg-slate-950 p-3">
@@ -210,14 +261,14 @@ export default function AppShell() {
                         <p>MCap: <span className="text-white">{Math.round(token.marketCap)}</span></p>
                       </div>
                       <div className="flex gap-2 mt-2">
-                        <input 
-                          type="number" 
-                          className="w-full bg-slate-800 rounded px-2 text-xs" 
+                        <input
+                          type="number"
+                          className="w-full bg-slate-800 rounded px-2 text-xs"
                           placeholder="Amt"
-                          onChange={(e) => setTradeAmount(prev => ({...prev, [token.tokenAddress]: e.target.value}))}
+                          onChange={(e) => setTradeAmount((prev) => ({ ...prev, [token.tokenAddress]: e.target.value }))}
                         />
-                        <button onClick={() => handleTrade(token.tokenAddress, 'buy')} className="bg-emerald-500 text-slate-950 px-2 py-1 rounded text-[10px] font-bold">BUY</button>
-                        <button onClick={() => handleTrade(token.tokenAddress, 'sell')} className="bg-amber-500 text-slate-950 px-2 py-1 rounded text-[10px] font-bold">SELL</button>
+                        <button disabled={isTrading || !session.networkStatus?.ok} onClick={() => handleTrade(token.tokenAddress, 'buy')} className="bg-emerald-500 text-slate-950 px-2 py-1 rounded text-[10px] font-bold disabled:opacity-50">BUY</button>
+                        <button disabled={isTrading || !session.networkStatus?.ok} onClick={() => handleTrade(token.tokenAddress, 'sell')} className="bg-amber-500 text-slate-950 px-2 py-1 rounded text-[10px] font-bold disabled:opacity-50">SELL</button>
                         <button onClick={() => setSelectedTokenId(token.id)} className="bg-slate-700 px-2 py-1 rounded text-[10px]">INFO</button>
                       </div>
                     </article>
@@ -225,7 +276,6 @@ export default function AppShell() {
                 </div>
               </article>
 
-              {/* Activity Feed */}
               <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
                 <h3 className="text-sm font-semibold mb-2">Global Activity</h3>
                 <div className="max-h-32 overflow-y-auto space-y-1">
@@ -238,18 +288,17 @@ export default function AppShell() {
               </article>
             </div>
 
-            {/* ALT: Chat ve Detay */}
             <div className="lg:col-span-3">
               {tradeStatus && <div className="mb-4 p-2 bg-cyan-900/30 border border-cyan-500 text-cyan-200 text-xs rounded">{tradeStatus}</div>}
-              <ChatPanel 
-                profile={dashboard.profile} 
-                messages={messages} 
-                sendMessage={sendMessage} 
-                connected={connected} 
-                joinRoom={joinRoom} 
-                activeRoom={activeRoom} 
-                rooms={rooms} 
-                error={error} 
+              <ChatPanel
+                profile={dashboard.profile}
+                messages={messages}
+                sendMessage={sendMessage}
+                connected={connected}
+                joinRoom={joinRoom}
+                activeRoom={activeRoom}
+                rooms={rooms}
+                error={error}
               />
             </div>
 
@@ -268,7 +317,13 @@ export default function AppShell() {
             )}
           </section>
         ) : (
-          <WalletModal wallets={wallets} availability={availability} onConnect={connect} />
+          <WalletModal
+            wallets={wallets}
+            availability={availability}
+            onConnect={handleConnect}
+            connectingType={session.status === 'connecting' ? session.walletType : ''}
+            error={connectError}
+          />
         )}
       </div>
     </main>
@@ -277,8 +332,12 @@ export default function AppShell() {
 
 const ReferralCount = ({ tokenId, referrer }) => {
   const [count, setCount] = useState(0);
+
   useEffect(() => {
-    if (tokenId && referrer) getReferralJoins({ tokenId, referrer }).then(setCount);
+    if (tokenId && referrer) {
+      getReferralJoins({ tokenId, referrer }).then(setCount);
+    }
   }, [tokenId, referrer]);
+
   return <span className="text-cyan-400 font-bold">{count}</span>;
 };

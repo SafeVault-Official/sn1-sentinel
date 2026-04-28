@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "backend:dev": "node backend/server.js"
+    "backend:dev": "node backend/server.js",
+    "deploy:testnet": "./scripts/deploy-testnet.sh",
+    "deploy:testnet:sepolia": "HARDHAT_NETWORK=target ./scripts/deploy-testnet.sh"
   },
   "dependencies": {
     "@solana/wallet-adapter-base": "^0.9.23",

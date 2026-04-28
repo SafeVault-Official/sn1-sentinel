@@ -111,6 +111,23 @@ class WalletService {
     this.provider = null;
     this.wallet = toWalletState();
     this.unsubscribe = () => undefined;
+    this.sessionListeners = new Set();
+  }
+
+  subscribe(listener) {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
+  }
+
+  emitSessionChange() {
+    const snapshot = this.getWalletSnapshot();
+    this.sessionListeners.forEach((listener) => {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        console.warn('walletService session listener failed:', error);
+      }
+    });
   }
 
   getSupportedWalletTypes() {
@@ -171,6 +188,7 @@ class WalletService {
           connected: Boolean(address),
         });
         this.bindProviderEvents(WALLET_TYPES.PHANTOM);
+        this.emitSessionChange();
         return this.getWalletSnapshot();
       }
 
@@ -191,6 +209,7 @@ class WalletService {
           connected: Boolean(accounts?.length),
         });
         this.bindProviderEvents(WALLET_TYPES.METAMASK);
+        this.emitSessionChange();
         return this.getWalletSnapshot();
       }
 
@@ -204,6 +223,7 @@ class WalletService {
         network: session.chainId,
         connected: true,
       });
+      this.emitSessionChange();
       return this.getWalletSnapshot();
     } catch (error) {
       throw mapWalletError(error, 'Unable to connect wallet.');
@@ -216,6 +236,7 @@ class WalletService {
       this.unsubscribe?.();
       this.provider = null;
       this.wallet = toWalletState();
+      this.emitSessionChange();
       return this.getWalletSnapshot();
     } catch (error) {
       throw mapWalletError(error, 'Unable to disconnect wallet.');
@@ -239,6 +260,7 @@ class WalletService {
           network: NETWORKS.SOLANA_MAINNET,
           connected: Boolean(address),
         });
+        this.emitSessionChange();
       };
 
       this.provider.on('accountChanged', onAccountChanged);
@@ -248,11 +270,18 @@ class WalletService {
 
     const onAccountsChanged = (accounts = []) => {
       const address = accounts?.[0] || '';
+      if (!address) {
+        this.wallet = toWalletState();
+        this.emitSessionChange();
+        return;
+      }
+
       this.wallet = toWalletState({
         ...this.wallet,
         address,
         connected: Boolean(address),
       });
+      this.emitSessionChange();
     };
 
     const onChainChanged = (nextChainId) => {
@@ -260,6 +289,7 @@ class WalletService {
         ...this.wallet,
         network: normalizeChainId(nextChainId),
       });
+      this.emitSessionChange();
     };
 
     this.provider.on('accountsChanged', onAccountsChanged);
