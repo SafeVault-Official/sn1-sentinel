@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - master
   workflow_dispatch:
 
 permissions:
@@ -29,31 +28,24 @@ jobs:
         with:
           node-version: 20
 
-      # ✅ FRONTEND klasörüne gir
       - name: Install dependencies
-        run: |
-          cd frontend
-          npm install
+        run: npm install
 
-      # ✅ FRONTEND build al
-      - name: Build
-        run: |
-          cd frontend
-          npm run build
+      - name: Build project
+        run: npm run build
 
-      # ✅ DIST yolu düzeltildi
-      - name: Upload Pages artifact
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: dist
 
   deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
-    runs-on: ubuntu-latest
-    needs: build
 
     steps:
       - name: Deploy to GitHub Pages
