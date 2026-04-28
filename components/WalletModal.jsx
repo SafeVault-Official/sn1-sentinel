@@ -1,18 +1,21 @@
-export const WalletModal = ({ wallets, availability, onConnect, connectingType }) => (
+export const WalletModal = ({ wallets, availability, onConnect, connectingType, error }) => (
   <div className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
     <h3 className="text-lg font-semibold">Connect Wallet</h3>
+    <p className="mt-1 text-xs text-slate-400">Choose a wallet provider to continue. Unsupported wallets stay disabled.</p>
     <div className="mt-3 grid gap-2 md:grid-cols-2">
       {wallets.map((wallet) => (
         <button
           key={wallet.id}
-          className="rounded-xl border border-slate-700 bg-slate-800 p-3 text-left hover:border-cyan-400"
+          className="rounded-xl border border-slate-700 bg-slate-800 p-3 text-left hover:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => onConnect(wallet.id)}
-          disabled={connectingType === wallet.id}
+          disabled={!availability[wallet.id] || Boolean(connectingType)}
         >
           <div className="font-medium">{wallet.label}</div>
-          <div className="text-xs text-slate-400">{availability[wallet.id] ? 'Available' : 'Not detected (mock enabled)'}</div>
+          <div className="text-xs text-slate-400">{availability[wallet.id] ? 'Available' : 'Not detected in this browser'}</div>
         </button>
       ))}
     </div>
+    {connectingType ? <p className="mt-3 text-xs text-cyan-200">Connecting wallet...</p> : null}
+    {error ? <p className="mt-3 rounded border border-rose-500/40 bg-rose-950/40 p-2 text-xs text-rose-200">{error}</p> : null}
   </div>
 );
