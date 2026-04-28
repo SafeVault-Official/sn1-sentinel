@@ -1,20 +1,34 @@
-const STORAGE_KEY = 'sn1.mockchain.state.v1';
+
+const STORAGE_KEY = 'sn1.mockchain.state.v2';
 
 const defaultState = {
   wallets: {},
   tokens: [],
   transfers: [],
+  // Her iki daldan gelen yeni alanları birleştiriyoruz
+  trades: [], 
   tokenTrades: [],
   shareVisits: {},
   referrals: {},
   achievements: {},
   activity: [],
   notifications: {},
+  treasury: {
+    snl1FeesCollected: 0,
+  },
 };
 
-const ensureShape = (state) => ({
+/**
+ * Gelen ham verinin defaultState yapısına uygun olmasını sağlar, 
+ * eksik alanları varsayılanlarla doldurur.
+ */
+const ensureShape = (raw = {}) => ({
   ...structuredClone(defaultState),
-  ...state,
+  ...raw,
+  treasury: {
+    ...defaultState.treasury,
+    ...(raw?.treasury || {}),
+  },
 });
 
 export const readState = () => {

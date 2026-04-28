@@ -8,13 +8,16 @@ import { getDashboardSnapshot } from '../services/web3IdentityService';
 import { useChatSocket } from '../chat/useChatSocket';
 import { shortWallet } from '../auth/profileService';
 import {
+  buyLaunchpadToken,
+  sellLaunchpadToken,
+  getAllTradableTokens,
+  getPlatformTreasury,
   getGrowthSnapshot,
   getLaunchpadTokenDetail,
   getReferralJoins,
   getTokenShareLink,
   getWalletNotifications,
   registerReferral,
-  tradeLaunchpadToken,
 } from '../factory/tokenFactoryService';
 
 const ACHIEVEMENTS = {
@@ -46,13 +49,14 @@ const MiniChart = ({ data = [] }) => {
 export default function AppShell() {
   const { session, wallets, availability, connect, disconnect, refreshBalance } = useWalletSession();
   const [dashboard, setDashboard] = useState({ profile: null, tokens: [] });
-// useChatSocket'i main dalındaki genişletilmiş parametrelerle kullanıyoruz
-  const { messages, sendMessage, connected, joinRoom, activeRoom, rooms, error } = useChatSocket(
-    dashboard.profile, 
-    dashboard.tokens
-  );
+  
+  // Market ve Finansal State (Codex)
+  const [marketTokens, setMarketTokens] = useState([]);
+  const [tradeAmount, setTradeAmount] = useState({});
+  const [tradeStatus, setTradeStatus] = useState('');
+  const [treasury, setTreasury] = useState({ snl1FeesCollected: 0 });
 
-  // codex dalındaki state tanımlarını koruyoruz
+  // Büyüme ve Sosyal State (Main)
   const [growth, setGrowth] = useState({ 
     tokens: [], 
     leaderboards: { users: {}, tokens: {} }, 
@@ -64,15 +68,29 @@ export default function AppShell() {
   const [notifications, setNotifications] = useState([]);
   const [referralJoined, setReferralJoined] = useState(false);
 
-  const reload = async () => {
-    await refreshBalance();
-    const snapshot = await getDashboardSnapshot(session);
-    setDashboard(snapshot);
+  // Chat Socket
+  const { messages, sendMessage, connected, joinRoom, activeRoom, rooms, error } = useChatSocket(
+    dashboard.profile, 
+    dashboard.tokens
+  );
+
+  const loadMarket = async () => {
+    const [tokens, treasurySnapshot] = await Promise.all([getAllTradableTokens(), getPlatformTreasury()]);
+    setMarketTokens(tokens);
+    setTreasury(treasurySnapshot);
   };
 
   const loadGrowth = async () => {
     const snapshot = await getGrowthSnapshot({ chatMessages: messages });
     setGrowth(snapshot);
+  };
+
+  const reload = async () => {
+    await refreshBalance();
+    const snapshot = await getDashboardSnapshot(session);
+    setDashboard(snapshot);
+    await loadMarket();
+    await loadGrowth();
   };
 
   useEffect(() => {
@@ -84,7 +102,7 @@ export default function AppShell() {
   }, [messages]);
 
   useEffect(() => {
-    const syncOnStorage = () => loadGrowth();
+    const syncOnStorage = () => { loadMarket(); loadGrowth(); };
     window.addEventListener('sn1:state-updated', syncOnStorage);
     return () => window.removeEventListener('sn1:state-updated', syncOnStorage);
   }, [messages]);
@@ -109,145 +127,149 @@ export default function AppShell() {
     }
   }, [referralJoined]);
 
+  const walletTokenBalances = useMemo(() => session.balance?.tokenBalances || {}, [session.balance]);
+  
   const myReputation = useMemo(
     () => growth.walletStats.find((item) => item.walletAddress === session.address),
     [growth.walletStats, session.address],
   );
 
-  const trade = async (tokenId, type) => {
-    await tradeLaunchpadToken({ walletAddress: session.address, tokenId, type, amount: 10 });
-    await reload();
-    await loadGrowth();
+  const handleTrade = async (tokenAddress, side) => {
+    const amount = Number(tradeAmount[tokenAddress] || 10);
+    try {
+      if (side === 'buy') {
+        await buyLaunchpadToken({ tokenAddress, walletAddress: session.address, amount });
+      } else {
+        await sellLaunchpadToken({ tokenAddress, walletAddress: session.address, amount });
+      }
+      setTradeStatus(`${side.toUpperCase()} success!`);
+      await reload();
+    } catch (err) {
+      setTradeStatus(`Error: ${err.message}`);
+    }
   };
 
   const shareToken = async (tokenId) => {
     const shareLink = await getTokenShareLink({ tokenId, walletAddress: session.address });
     await navigator.clipboard.writeText(shareLink);
-    await loadGrowth();
+    alert("Share link copied to clipboard!");
   };
 
   return (
     <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
       <div className="mx-auto max-w-7xl space-y-4">
         <header className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-          <h1 className="text-2xl font-bold">SNL1 Web3 Growth Engine</h1>
-          <p className="text-sm text-slate-300">Trading + social + gamification stack with trending, competition, and viral loops.</p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-bold text-cyan-400">SNL1 Growth & Bonding Engine</h1>
+              <p className="text-sm text-slate-300">Bonding curve economy meet viral growth loops.</p>
+            </div>
+            <div className="text-right text-xs text-slate-400">
+              Treasury: <span className="text-emerald-400">{treasury.snl1FeesCollected.toLocaleString()} SNL1</span>
+            </div>
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <span className="rounded bg-slate-800 px-3 py-1 text-xs">Wallet: {shortWallet(session.address)}</span>
-            <span className="rounded bg-slate-800 px-3 py-1 text-xs">SNL1: {session.balance.snl1Balance.toLocaleString()}</span>
-            <span className="rounded bg-slate-800 px-3 py-1 text-xs">USD: {session.balance.usdBalance.toLocaleString()}</span>
+            <span className="rounded bg-slate-800 px-3 py-1 text-xs text-cyan-300">SNL1: {session.balance.snl1Balance.toLocaleString()}</span>
             <span className="rounded bg-indigo-900 px-3 py-1 text-xs">Reputation: {myReputation?.reputationLevel || 'Newbie'}</span>
-            {session.isConnected ? <button className="rounded bg-rose-400 px-3 py-1 text-xs text-slate-950" onClick={disconnect}>Disconnect</button> : null}
+            {session.isConnected && <button className="rounded bg-rose-400 px-3 py-1 text-xs text-slate-950" onClick={disconnect}>Disconnect</button>}
           </div>
         </header>
 
-        {!session.isConnected ? <WalletModal wallets={wallets} availability={availability} onConnect={connect} connectingType={session.status === 'connecting' ? session.walletType : ''} /> : null}
-
         {session.isConnected ? (
           <section className="grid gap-4 lg:grid-cols-3">
+            {/* SOL KOLON: Profil ve Factory */}
             <div className="space-y-4">
               <AvatarBadge avatar={dashboard.profile?.avatar} />
               <TokenFactoryPanel walletAddress={session.address} onCreated={reload} />
-
+              
               <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-                <h3 className="font-semibold">Gamification</h3>
-                <p className="text-xs text-slate-400">Score {myReputation?.score || 0} • {myReputation?.reputationLevel || 'Newbie'}</p>
-                <div className="mt-2 space-y-1 text-xs">
+                <h3 className="font-semibold mb-2">My Achievements</h3>
+                <div className="flex flex-wrap gap-2">
                   {(myReputation?.achievements || []).map((badge) => (
-                    <div className="rounded bg-slate-800 px-2 py-1" key={badge}>🏅 {ACHIEVEMENTS[badge] || badge}</div>
+                    <div className="rounded bg-slate-800 px-2 py-1 text-xs" key={badge}>🏅 {ACHIEVEMENTS[badge] || badge}</div>
                   ))}
-                  {!(myReputation?.achievements || []).length ? <div className="text-slate-500">No achievements unlocked yet.</div> : null}
-                </div>
-              </article>
-
-              <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-                <h3 className="font-semibold">Notifications</h3>
-                <div className="mt-2 max-h-48 space-y-2 overflow-y-auto text-xs">
-                  {notifications.map((item) => (
-                    <div key={item.id} className="rounded border border-slate-800 bg-slate-950 p-2">
-                      <div className="font-medium">{item.title}</div>
-                      <div className="text-slate-400">{item.body}</div>
-                    </div>
-                  ))}
-                  {!notifications.length ? <p className="text-slate-500">No notifications yet.</p> : null}
+                  {!(myReputation?.achievements || []).length && <span className="text-xs text-slate-500">No badges yet.</span>}
                 </div>
               </article>
             </div>
 
+            {/* ORTA KOLON: Market ve Trendler */}
             <div className="space-y-4 lg:col-span-2">
               <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-                <h3 className="text-lg font-semibold">Trending Tokens</h3>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {growth.tokens.slice(0, 8).map((token) => (
-                    <button key={token.id} className="rounded-xl border border-slate-700 bg-slate-950 p-3 text-left" onClick={() => setSelectedTokenId(token.id)}>
-                      <div className="flex items-center justify-between">
-                        <div className="font-semibold">{token.symbol}</div>
-                        <span className="rounded bg-amber-900 px-2 py-0.5 text-xs">{token.trendTag}</span>
+                <h3 className="text-lg font-semibold mb-3">Live Bonding Curve Market</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {marketTokens.map((token) => (
+                    <article key={token.id} className="rounded-xl border border-slate-700 bg-slate-950 p-3">
+                      <div className="flex justify-between">
+                        <span className="font-bold text-cyan-400">{token.symbol}</span>
+                        <span className="text-[10px] bg-slate-800 px-2 rounded-full uppercase">{token.holdersCount} Holders</span>
                       </div>
-                      <div className="text-xs text-slate-400">Vol ${token.recentVolume} • Holders {token.holders.length} • Mentions {token.mentions}</div>
-                      <div className="text-xs text-cyan-300">Trend score {token.trendScore}</div>
-                    </button>
+                      <div className="my-2 text-xs grid grid-cols-2 gap-1 text-slate-400">
+                        <p>Price: <span className="text-white">{token.currentPrice}</span></p>
+                        <p>MCap: <span className="text-white">{Math.round(token.marketCap)}</span></p>
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <input 
+                          type="number" 
+                          className="w-full bg-slate-800 rounded px-2 text-xs" 
+                          placeholder="Amt"
+                          onChange={(e) => setTradeAmount(prev => ({...prev, [token.tokenAddress]: e.target.value}))}
+                        />
+                        <button onClick={() => handleTrade(token.tokenAddress, 'buy')} className="bg-emerald-500 text-slate-950 px-2 py-1 rounded text-[10px] font-bold">BUY</button>
+                        <button onClick={() => handleTrade(token.tokenAddress, 'sell')} className="bg-amber-500 text-slate-950 px-2 py-1 rounded text-[10px] font-bold">SELL</button>
+                        <button onClick={() => setSelectedTokenId(token.id)} className="bg-slate-700 px-2 py-1 rounded text-[10px]">INFO</button>
+                      </div>
+                    </article>
                   ))}
                 </div>
               </article>
 
+              {/* Activity Feed */}
               <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-                <h3 className="text-lg font-semibold">Leaderboards</h3>
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <h4 className="text-sm font-medium">Top Traders</h4>
-                    {(growth.leaderboards.users.topTraders || []).slice(0, 5).map((user) => <p className="text-xs" key={user.walletAddress}>{shortWallet(user.walletAddress)} • {user.trades} trades</p>)}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium">Biggest Holders</h4>
-                    {(growth.leaderboards.users.biggestHolders || []).slice(0, 5).map((user) => <p className="text-xs" key={user.walletAddress}>{shortWallet(user.walletAddress)} • ${user.holdings.toFixed(2)}</p>)}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium">Highest Market Cap</h4>
-                    {(growth.leaderboards.tokens.highestMarketCap || []).slice(0, 5).map((token) => <p className="text-xs" key={token.id}>{token.symbol} • ${token.marketCap.toFixed(2)}</p>)}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium">Most Traded</h4>
-                    {(growth.leaderboards.tokens.mostTraded || []).slice(0, 5).map((token) => <p className="text-xs" key={token.id}>{token.symbol} • {token.totalTrades} trades</p>)}
-                  </div>
-                </div>
-              </article>
-
-              <article className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
-                <h3 className="text-lg font-semibold">Activity Feed</h3>
-                <div className="mt-2 max-h-48 space-y-2 overflow-y-auto text-xs">
-                  {growth.activity.map((event) => <div key={event.id} className="rounded border border-slate-800 bg-slate-950 p-2">{event.message} • {new Date(event.timestamp).toLocaleTimeString()}</div>)}
+                <h3 className="text-sm font-semibold mb-2">Global Activity</h3>
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {growth.activity.slice(0, 10).map((event) => (
+                    <div key={event.id} className="text-[10px] text-slate-400 border-b border-slate-800 pb-1">
+                      {event.message} <span className="opacity-50">• {new Date(event.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                  ))}
                 </div>
               </article>
             </div>
 
+            {/* ALT: Chat ve Detay */}
             <div className="lg:col-span-3">
-              <ChatPanel profile={dashboard.profile} messages={messages} sendMessage={sendMessage} connected={connected} joinRoom={joinRoom} activeRoom={activeRoom} rooms={rooms} error={error} />
+              {tradeStatus && <div className="mb-4 p-2 bg-cyan-900/30 border border-cyan-500 text-cyan-200 text-xs rounded">{tradeStatus}</div>}
+              <ChatPanel 
+                profile={dashboard.profile} 
+                messages={messages} 
+                sendMessage={sendMessage} 
+                connected={connected} 
+                joinRoom={joinRoom} 
+                activeRoom={activeRoom} 
+                rooms={rooms} 
+                error={error} 
+              />
             </div>
 
-            {selectedToken ? (
-              <div className="lg:col-span-3 rounded-2xl border border-cyan-700 bg-slate-900 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-lg font-semibold">Token Page: {selectedToken.name} ({selectedToken.symbol})</h3>
-                  <span className="text-sm text-cyan-300">Price ${selectedToken.price}</span>
+            {selectedToken && (
+              <div className="lg:col-span-3 rounded-2xl border border-cyan-500 bg-slate-900 p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-bold">{selectedToken.name} Detail View</h2>
+                  <button onClick={() => setSelectedToken(null)} className="text-slate-400">Close</button>
                 </div>
                 <MiniChart data={selectedToken.history} />
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button className="rounded bg-emerald-500 px-3 py-1 text-xs text-slate-950" onClick={() => trade(selectedToken.id, 'buy')}>Buy 10</button>
-                  <button className="rounded bg-amber-500 px-3 py-1 text-xs text-slate-950" onClick={() => trade(selectedToken.id, 'sell')}>Sell 10</button>
-                  <button className="rounded bg-sky-500 px-3 py-1 text-xs text-slate-950" onClick={() => shareToken(selectedToken.id)}>Copy Share Link</button>
-                </div>
-                <div className="mt-2 text-xs text-slate-400">Holders: {selectedToken.holders.length} • Trades: {selectedToken.trades.length}</div>
-                <div className="text-xs text-slate-400">
-                  Joined from this link: <ReferralCount tokenId={selectedToken.id} referrer={session.address} />
-                </div>
-                <div className="mt-2 max-h-32 overflow-y-auto text-xs">
-                  {selectedToken.trades.slice(0, 10).map((tradeEvent) => <div key={tradeEvent.id}>{shortWallet(tradeEvent.walletAddress)} {tradeEvent.type} {tradeEvent.amount} • ${tradeEvent.usdValue}</div>)}
+                <div className="mt-4 flex gap-4 items-center">
+                  <button className="bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold" onClick={() => shareToken(selectedToken.id)}>Copy Viral Share Link</button>
+                  <p className="text-xs text-slate-400">Viral Joins: <ReferralCount tokenId={selectedToken.id} referrer={session.address} /></p>
                 </div>
               </div>
-            ) : null}
+            )}
           </section>
-        ) : null}
+        ) : (
+          <WalletModal wallets={wallets} availability={availability} onConnect={connect} />
+        )}
       </div>
     </main>
   );
@@ -255,11 +277,8 @@ export default function AppShell() {
 
 const ReferralCount = ({ tokenId, referrer }) => {
   const [count, setCount] = useState(0);
-
   useEffect(() => {
-    if (!tokenId || !referrer) return;
-    getReferralJoins({ tokenId, referrer }).then(setCount);
+    if (tokenId && referrer) getReferralJoins({ tokenId, referrer }).then(setCount);
   }, [tokenId, referrer]);
-
-  return <span>{count}</span>;
+  return <span className="text-cyan-400 font-bold">{count}</span>;
 };
