@@ -2,12 +2,12 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
-import { WalletProvider } from './context/WalletContext';
+import { WalletSessionProvider } from '../wallet/useWalletSession.jsx';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <WalletProvider>
+    <WalletSessionProvider>
       <App />
-    </WalletProvider>
+    </WalletSessionProvider>
   </React.StrictMode>,
 );
