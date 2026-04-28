@@ -35,29 +35,40 @@ Error codes for product-level handling:
 
 ## 2) Blockchain Abstraction Layer (`blockchainService.js`)
 
-Stable chain API (mock-first):
+Stable chain API:
 
 - `getBalance(walletAddress)`
 - `transferToken(from, to, amount)`
 - `createTransaction(data)`
 - `getTransactionHistory(walletAddress)`
+- `setNetwork(networkId)`
+- `getNetwork()`
+- `getAvailableNetworks()`
 
-The current implementation stores state in localStorage and simulates
-transaction lifecycle (`pending -> confirmed/failed`).
+### Provider switching
+
+`blockchainService` now routes through provider adapters in `providers/` and can be switched across:
+
+- `mock`
+- `testnet` (Sepolia RPC)
+- `mainnet` (Ethereum Mainnet RPC)
+
+Default selection comes from `VITE_BLOCKCHAIN_NETWORK` (fallback: `mock`).
+
+Optional RPC overrides:
+
+- `VITE_TESTNET_RPC_URL`
+- `VITE_MAINNET_RPC_URL`
 
 ## 3) State Management Layer
 
-`wallet/useWalletSession.jsx` now hydrates global state from these services and
-exposes both:
-
-- UI-friendly `session` data
-- a `web3` object with the raw service interfaces for future feature modules
+`WalletContext` hydrates balance state from `blockchainService`, so UI modules stay transport-agnostic.
 
 ## 4) Mock -> Real Migration Strategy
 
-Future real contract integration requires implementation replacement in only:
+Future real contract write support only needs provider adapter updates in:
 
-- `walletService.js` for provider/session logic
-- `blockchainService.js` for contract reads/writes
+- `providers/evmProvider.js` for RPC + contract writes
+- `providers/mockProvider.js` for local simulation behavior
 
 UI and feature modules should keep using the same exported methods.
