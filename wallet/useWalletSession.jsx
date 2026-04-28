@@ -1,93 +1,175 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { walletAdapters, WALLET_OPTIONS } from './providers';
-import { getBalance } from '../mock-blockchain/mockBlockchainService';
+import { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
+import { blockchainService } from '../src/services/web3/blockchainService';
+import { walletService, WALLET_ERROR_CODES } from '../src/services/web3/walletService';
 
 const WalletSessionContext = createContext(null);
 
-export const WalletSessionProvider = ({ children }) => {
-  const [session, setSession] = useState({
-    isConnected: false,
-    walletType: '',
+const WALLET_OPTIONS = [
+  { id: 'phantom', label: 'Phantom' },
+  { id: 'metamask', label: 'MetaMask' },
+  { id: 'walletconnect', label: 'WalletConnect' },
+];
+
+const initialState = {
+  wallet: {
     address: '',
-    chainId: '',
-    walletFamily: 'evm',
-    balance: { usdBalance: 0, snl1Balance: 0 },
-    status: 'idle',
-  });
-  const providerRef = useRef(null);
-  const unwatchRef = useRef(() => undefined);
+    type: '',
+    network: '',
+    connected: false,
+  },
+  balance: {
+    usdBalance: 0,
+    snl1Balance: 0,
+  },
+  transactionHistory: [],
+  networkStatus: {
+    ok: false,
+    expectedNetworks: [],
+    actualNetwork: '',
+    reason: 'Wallet not connected.',
+  },
+  status: 'idle',
+  error: null,
+};
 
-  const connect = useCallback(async (walletType) => {
-    const adapter = walletAdapters[walletType];
-    if (!adapter) throw new Error('Wallet adapter not found.');
+const toAvailabilityMap = () => ({
+  phantom: Boolean(window?.phantom?.solana?.isPhantom),
+  metamask: Boolean(window?.ethereum),
+  walletconnect: true,
+});
 
-    setSession((prev) => ({ ...prev, status: 'connecting' }));
+function reducer(state, action) {
+  switch (action.type) {
+    case 'CONNECTING':
+      return { ...state, status: 'connecting', error: null };
+    case 'CONNECTED':
+      return {
+        ...state,
+        wallet: action.payload.wallet,
+        balance: action.payload.balance,
+        transactionHistory: action.payload.transactionHistory,
+        networkStatus: action.payload.networkStatus,
+        status: 'connected',
+        error: null,
+      };
+    case 'DISCONNECTED':
+      return { ...initialState, status: 'idle' };
+    case 'SYNC_CHAIN_STATE':
+      return {
+        ...state,
+        wallet: action.payload.wallet,
+        balance: action.payload.balance,
+        transactionHistory: action.payload.transactionHistory,
+        networkStatus: action.payload.networkStatus,
+      };
+    case 'ERROR':
+      return { ...state, status: 'error', error: action.payload };
+    default:
+      return state;
+  }
+}
 
-    const connection = await adapter.connect();
-    providerRef.current = connection.provider;
+export const WalletSessionProvider = ({ children }) => {
+  const [state, dispatch] = useReducer(reducer, initialState);
 
-    unwatchRef.current?.();
-    unwatchRef.current = adapter.watch?.(connection.provider, {
-      onAccountsChanged: (accounts = []) => {
-        if (!accounts[0]) {
-          setSession((prev) => ({ ...prev, isConnected: false, address: '', status: 'idle' }));
-          return;
-        }
-        setSession((prev) => ({ ...prev, address: accounts[0] }));
+  const syncWalletChainState = useCallback(async () => {
+    const wallet = walletService.getWalletSnapshot();
+
+    if (!wallet.connected || !wallet.address) {
+      dispatch({ type: 'DISCONNECTED' });
+      return;
+    }
+
+    const [balance, transactionHistory] = await Promise.all([
+      blockchainService.getBalance(wallet.address),
+      blockchainService.getTransactionHistory(wallet.address),
+    ]);
+
+    dispatch({
+      type: 'SYNC_CHAIN_STATE',
+      payload: {
+        wallet,
+        balance,
+        transactionHistory,
+        networkStatus: walletService.getNetworkStatus(),
       },
-      onChainChanged: (chainId) => {
-        setSession((prev) => ({ ...prev, chainId }));
-      },
-    }) || (() => undefined);
-
-    const balance = await getBalance(connection.address);
-
-    setSession({
-      isConnected: true,
-      walletType,
-      address: connection.address,
-      chainId: connection.chainId || '',
-      walletFamily: connection.walletFamily || 'evm',
-      balance,
-      status: 'connected',
     });
   }, []);
 
-  const disconnect = useCallback(async () => {
-    if (session.walletType) {
-      await walletAdapters[session.walletType]?.disconnect?.(providerRef.current);
+  const connect = useCallback(async (preferredType) => {
+    dispatch({ type: 'CONNECTING' });
+
+    try {
+      const wallet = await walletService.connectWallet(preferredType);
+      const [balance, transactionHistory] = await Promise.all([
+        blockchainService.getBalance(wallet.address),
+        blockchainService.getTransactionHistory(wallet.address),
+      ]);
+
+      dispatch({
+        type: 'CONNECTED',
+        payload: {
+          wallet,
+          balance,
+          transactionHistory,
+          networkStatus: walletService.getNetworkStatus(),
+        },
+      });
+    } catch (error) {
+      dispatch({
+        type: 'ERROR',
+        payload: {
+          code: error?.code || WALLET_ERROR_CODES.UNKNOWN,
+          message: error?.message || 'Wallet connection failed.',
+        },
+      });
+      throw error;
     }
-    unwatchRef.current?.();
-    providerRef.current = null;
-    setSession({
-      isConnected: false,
-      walletType: '',
-      address: '',
-      chainId: '',
-      walletFamily: 'evm',
-      balance: { usdBalance: 0, snl1Balance: 0 },
-      status: 'idle',
-    });
-  }, [session.walletType]);
+  }, []);
+
+  const disconnect = useCallback(async () => {
+    try {
+      await walletService.disconnectWallet();
+    } finally {
+      dispatch({ type: 'DISCONNECTED' });
+    }
+  }, []);
 
   const refreshBalance = useCallback(async () => {
-    if (!session.address) return;
-    const balance = await getBalance(session.address);
-    setSession((prev) => ({ ...prev, balance }));
-  }, [session.address]);
+    await syncWalletChainState();
+  }, [syncWalletChainState]);
 
-  const availability = useMemo(
-    () => Object.fromEntries(WALLET_OPTIONS.map((wallet) => [wallet.id, walletAdapters[wallet.id].detect()])),
-    [],
-  );
-
-  const value = useMemo(() => ({ session, connect, disconnect, refreshBalance, wallets: WALLET_OPTIONS, availability }), [
-    session,
+  const value = useMemo(() => ({
+    session: {
+      isConnected: state.wallet.connected,
+      walletType: state.wallet.type,
+      address: state.wallet.address,
+      chainId: state.wallet.network,
+      walletFamily: state.wallet.type === 'phantom' ? 'solana' : 'evm',
+      balance: state.balance,
+      status: state.status,
+      error: state.error,
+      networkStatus: state.networkStatus,
+      transactions: state.transactionHistory,
+    },
     connect,
     disconnect,
     refreshBalance,
-    availability,
-  ]);
+    wallets: WALLET_OPTIONS,
+    availability: toAvailabilityMap(),
+    // Expose service-style API for feature modules that need a direct foundation layer.
+    web3: {
+      connectWallet: walletService.connectWallet.bind(walletService),
+      disconnectWallet: walletService.disconnectWallet.bind(walletService),
+      getWalletAddress: walletService.getWalletAddress.bind(walletService),
+      getWalletType: walletService.getWalletType.bind(walletService),
+      getNetwork: walletService.getNetwork.bind(walletService),
+      getBalance: blockchainService.getBalance.bind(blockchainService),
+      transferToken: blockchainService.transferToken.bind(blockchainService),
+      createTransaction: blockchainService.createTransaction.bind(blockchainService),
+      getTransactionHistory: blockchainService.getTransactionHistory.bind(blockchainService),
+    },
+  }), [state, connect, disconnect, refreshBalance]);
 
   return <WalletSessionContext.Provider value={value}>{children}</WalletSessionContext.Provider>;
 };
