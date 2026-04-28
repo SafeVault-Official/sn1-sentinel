@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer } from 'react';
 import { blockchainService } from '../src/services/web3/blockchainService';
 import { walletService, WALLET_ERROR_CODES } from '../src/services/web3/walletService';
 
@@ -29,6 +29,7 @@ const initialState = {
     reason: 'Wallet not connected.',
   },
   status: 'idle',
+  syncStatus: 'idle',
   error: null,
 };
 
@@ -41,7 +42,12 @@ const toAvailabilityMap = () => ({
 function reducer(state, action) {
   switch (action.type) {
     case 'CONNECTING':
-      return { ...state, status: 'connecting', error: null };
+      return {
+        ...state,
+        status: 'connecting',
+        error: null,
+        wallet: { ...state.wallet, type: action.payload?.type || state.wallet.type },
+      };
     case 'CONNECTED':
       return {
         ...state,
@@ -50,6 +56,7 @@ function reducer(state, action) {
         transactionHistory: action.payload.transactionHistory,
         networkStatus: action.payload.networkStatus,
         status: 'connected',
+        syncStatus: 'idle',
         error: null,
       };
     case 'DISCONNECTED':
@@ -61,9 +68,13 @@ function reducer(state, action) {
         balance: action.payload.balance,
         transactionHistory: action.payload.transactionHistory,
         networkStatus: action.payload.networkStatus,
+        status: action.payload.wallet.connected ? 'connected' : 'idle',
+        syncStatus: 'idle',
       };
+    case 'SYNCING':
+      return { ...state, syncStatus: 'syncing' };
     case 'ERROR':
-      return { ...state, status: 'error', error: action.payload };
+      return { ...state, status: 'error', syncStatus: 'idle', error: action.payload };
     default:
       return state;
   }
@@ -73,6 +84,7 @@ export const WalletSessionProvider = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   const syncWalletChainState = useCallback(async () => {
+    dispatch({ type: 'SYNCING' });
     const wallet = walletService.getWalletSnapshot();
 
     if (!wallet.connected || !wallet.address) {
@@ -97,7 +109,7 @@ export const WalletSessionProvider = ({ children }) => {
   }, []);
 
   const connect = useCallback(async (preferredType) => {
-    dispatch({ type: 'CONNECTING' });
+    dispatch({ type: 'CONNECTING', payload: { type: preferredType || '' } });
 
     try {
       const wallet = await walletService.connectWallet(preferredType);
@@ -139,6 +151,18 @@ export const WalletSessionProvider = ({ children }) => {
     await syncWalletChainState();
   }, [syncWalletChainState]);
 
+  useEffect(() => walletService.subscribe(() => {
+    syncWalletChainState().catch((error) => {
+      dispatch({
+        type: 'ERROR',
+        payload: {
+          code: error?.code || WALLET_ERROR_CODES.UNKNOWN,
+          message: error?.message || 'Wallet sync failed.',
+        },
+      });
+    });
+  }), [syncWalletChainState]);
+
   const value = useMemo(() => ({
     session: {
       isConnected: state.wallet.connected,
@@ -148,6 +172,7 @@ export const WalletSessionProvider = ({ children }) => {
       walletFamily: state.wallet.type === 'phantom' ? 'solana' : 'evm',
       balance: state.balance,
       status: state.status,
+      syncStatus: state.syncStatus,
       error: state.error,
       networkStatus: state.networkStatus,
       transactions: state.transactionHistory,
