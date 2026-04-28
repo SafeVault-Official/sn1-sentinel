@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import UniversalProvider from '@walletconnect/universal-provider';
-import { getMockWalletSnapshot } from '../services/mockBlockchain';
+import { blockchainService } from '../services/web3/blockchainService';
 
 const WalletContext = createContext(null);
 
@@ -229,7 +229,7 @@ export const WalletProvider = ({ children }) => {
     let active = true;
     setIsLoadingBalance(true);
 
-    getMockWalletSnapshot(walletAddress)
+    blockchainService.getBalance(walletAddress)
       .then((snapshot) => {
         if (active) {
           setBalances(snapshot);
