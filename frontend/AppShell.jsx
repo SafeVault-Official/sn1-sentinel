@@ -11,7 +11,7 @@ import { shortWallet } from '../auth/profileService';
 export default function AppShell() {
   const { session, wallets, availability, connect, disconnect, refreshBalance } = useWalletSession();
   const [dashboard, setDashboard] = useState({ profile: null, tokens: [] });
-  const { messages, sendMessage, connected } = useChatSocket(dashboard.profile);
+  const { messages, sendMessage, connected, joinRoom, activeRoom, rooms, error } = useChatSocket(dashboard.profile, dashboard.tokens);
 
   const reload = async () => {
     await refreshBalance();
@@ -66,7 +66,7 @@ export default function AppShell() {
             </div>
 
             <div className="lg:col-span-3">
-              <ChatPanel profile={dashboard.profile} messages={messages} sendMessage={sendMessage} connected={connected} />
+              <ChatPanel profile={dashboard.profile} messages={messages} sendMessage={sendMessage} connected={connected} joinRoom={joinRoom} activeRoom={activeRoom} rooms={rooms} error={error} />
             </div>
           </section>
         ) : null}
