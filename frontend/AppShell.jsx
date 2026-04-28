@@ -46,8 +46,19 @@ const MiniChart = ({ data = [] }) => {
 export default function AppShell() {
   const { session, wallets, availability, connect, disconnect, refreshBalance } = useWalletSession();
   const [dashboard, setDashboard] = useState({ profile: null, tokens: [] });
-  const { messages, sendMessage, connected } = useChatSocket(dashboard.profile);
-  const [growth, setGrowth] = useState({ tokens: [], leaderboards: { users: {}, tokens: {} }, walletStats: [], activity: [] });
+// useChatSocket'i main dalındaki genişletilmiş parametrelerle kullanıyoruz
+  const { messages, sendMessage, connected, joinRoom, activeRoom, rooms, error } = useChatSocket(
+    dashboard.profile, 
+    dashboard.tokens
+  );
+
+  // codex dalındaki state tanımlarını koruyoruz
+  const [growth, setGrowth] = useState({ 
+    tokens: [], 
+    leaderboards: { users: {}, tokens: {} }, 
+    walletStats: [], 
+    activity: [] 
+  });
   const [selectedTokenId, setSelectedTokenId] = useState('');
   const [selectedToken, setSelectedToken] = useState(null);
   const [notifications, setNotifications] = useState([]);
@@ -211,7 +222,7 @@ export default function AppShell() {
             </div>
 
             <div className="lg:col-span-3">
-              <ChatPanel profile={dashboard.profile} messages={messages} sendMessage={sendMessage} connected={connected} />
+              <ChatPanel profile={dashboard.profile} messages={messages} sendMessage={sendMessage} connected={connected} joinRoom={joinRoom} activeRoom={activeRoom} rooms={rooms} error={error} />
             </div>
 
             {selectedToken ? (
