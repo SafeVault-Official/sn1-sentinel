@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {LaunchpadToken} from "./LaunchpadToken.sol";
 
 /**
  * @title TokenFactory
  * @notice Pump.fun-style launchpad factory for user-created ERC-20 tokens.
  */
-contract TokenFactory {
+contract TokenFactory is Ownable, ReentrancyGuard {
     struct TokenRecord {
         address tokenAddress;
         address creator;
@@ -23,19 +25,31 @@ contract TokenFactory {
     mapping(address creator => address[]) private _tokensByCreator;
     mapping(address token => uint256 oneBasedIndex) private _tokenIndex;
 
-    event TokenCreated(address indexed tokenAddress, address indexed creator);
+    uint256 public maxSymbolLength = 12;
 
-    error InvalidName();
-    error InvalidSymbol();
-    error InvalidSupply();
+    event TokenCreated(
+        address indexed tokenAddress,
+        address indexed creator,
+        string name,
+        string symbol,
+        uint256 supply,
+        string metadataURI,
+        string imageURI
+    );
+    event MaxSymbolLengthUpdated(uint256 previousMaxLength, uint256 newMaxLength);
+
     error TokenNotFound();
+
+    constructor(address initialOwner) Ownable(initialOwner) {
+        require(initialOwner != address(0), "TokenFactory: owner is zero address");
+    }
 
     function createToken(
         string calldata name,
         string calldata symbol,
         uint256 supply,
         string calldata metadataURI
-    ) external returns (address tokenAddress) {
+    ) external nonReentrant returns (address tokenAddress) {
         tokenAddress = _createToken(name, symbol, supply, metadataURI, "");
     }
 
@@ -45,8 +59,15 @@ contract TokenFactory {
         uint256 supply,
         string calldata metadataURI,
         string calldata imageURI
-    ) external returns (address tokenAddress) {
+    ) external nonReentrant returns (address tokenAddress) {
         tokenAddress = _createToken(name, symbol, supply, metadataURI, imageURI);
+    }
+
+    function setMaxSymbolLength(uint256 newMaxSymbolLength) external onlyOwner {
+        require(newMaxSymbolLength > 0, "TokenFactory: max length is zero");
+        uint256 previous = maxSymbolLength;
+        maxSymbolLength = newMaxSymbolLength;
+        emit MaxSymbolLengthUpdated(previous, newMaxSymbolLength);
     }
 
     function getTokensByCreator(address creator) external view returns (TokenRecord[] memory records) {
@@ -73,9 +94,10 @@ contract TokenFactory {
         string calldata metadataURI,
         string calldata imageURI
     ) internal returns (address tokenAddress) {
-        if (bytes(tokenName).length == 0) revert InvalidName();
-        if (bytes(tokenSymbol).length == 0 || bytes(tokenSymbol).length > 12) revert InvalidSymbol();
-        if (supply == 0) revert InvalidSupply();
+        require(bytes(tokenName).length > 0, "TokenFactory: name is required");
+        require(bytes(tokenSymbol).length > 0, "TokenFactory: symbol is required");
+        require(bytes(tokenSymbol).length <= maxSymbolLength, "TokenFactory: symbol too long");
+        require(supply > 0, "TokenFactory: supply must be greater than zero");
 
         LaunchpadToken token = new LaunchpadToken(
             tokenName,
@@ -102,7 +124,7 @@ contract TokenFactory {
         _tokenIndex[tokenAddress] = _allTokens.length;
         _tokensByCreator[msg.sender].push(tokenAddress);
 
-        emit TokenCreated(tokenAddress, msg.sender);
+        emit TokenCreated(tokenAddress, msg.sender, tokenName, tokenSymbol, supply, metadataURI, imageURI);
     }
 
     function _findTokenRecord(address tokenAddress) internal view returns (TokenRecord memory) {
