@@ -5,22 +5,23 @@ import { Server } from 'socket.io';
 import { createInMemoryStore } from './store.js';
 import { baseRooms, resolveRoom } from './rooms.js';
 import { canAccessRoom } from './blockchainAdapter.js';
+import { backendEnv } from './config.js';
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: '*' },
+  cors: { origin: backendEnv.corsOrigins.includes('*') ? '*' : backendEnv.corsOrigins },
 });
 
-app.use(cors());
+app.use(cors({ origin: backendEnv.corsOrigins.includes('*') ? true : backendEnv.corsOrigins }));
 app.use(express.json());
 
 const store = createInMemoryStore();
 baseRooms.forEach((room) => store.ensureRoom(room));
 
 const messageRateMap = new Map();
-const RATE_LIMIT_WINDOW_MS = 10_000;
-const RATE_LIMIT_MAX_MESSAGES = 8;
+const RATE_LIMIT_WINDOW_MS = backendEnv.rateLimitWindowMs;
+const RATE_LIMIT_MAX_MESSAGES = backendEnv.rateLimitMaxMessages;
 
 const shortAddressRegex = /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/;
 
@@ -147,7 +148,6 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 4000;
-httpServer.listen(PORT, () => {
-  console.log(`SN1 backend socket server listening on :${PORT}`);
+httpServer.listen(backendEnv.port, () => {
+  console.log(`SN1 backend socket server listening on :${backendEnv.port} (${backendEnv.nodeEnv})`);
 });

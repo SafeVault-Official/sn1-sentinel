@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
 
-const CHAT_ENDPOINT = import.meta.env.VITE_CHAT_API_URL || 'http://localhost:4000';
+import { appEnv } from '../src/config/env';
+
+const CHAT_ENDPOINT = appEnv.chatApiUrl;
 
 const DEFAULT_ROOMS = [
   { id: 'global', name: 'Global Chat', type: 'public' },

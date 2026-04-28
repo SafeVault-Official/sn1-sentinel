@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import UniversalProvider from '@walletconnect/universal-provider';
 import { getMockWalletSnapshot } from '../services/mockBlockchain';
+import { appEnv } from '../config/env';
 
 const WalletContext = createContext(null);
 
-const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'demo-project-id';
+const WALLETCONNECT_PROJECT_ID = appEnv.walletConnectProjectId;
 
 const WC_METHODS = [
   'eth_sendTransaction',
@@ -142,10 +143,10 @@ export const WalletProvider = ({ children }) => {
     const provider = await UniversalProvider.init({
       projectId: WALLETCONNECT_PROJECT_ID,
       metadata: {
-        name: 'SNL1 Sentinel',
-        description: 'SNL1 multi-wallet launchpad',
+        name: appEnv.walletConnectName,
+        description: appEnv.walletConnectDescription,
         url: window.location.origin,
-        icons: ['https://walletconnect.com/walletconnect-logo.png'],
+        icons: [appEnv.walletConnectIcon],
       },
     });
 
@@ -157,11 +158,9 @@ export const WalletProvider = ({ children }) => {
       namespaces: {
         eip155: {
           methods: WC_METHODS,
-          chains: ['eip155:1'],
+          chains: appEnv.walletConnectChains,
           events: ['chainChanged', 'accountsChanged'],
-          rpcMap: {
-            1: 'https://cloudflare-eth.com',
-          },
+          rpcMap: appEnv.walletConnectRpcMap,
         },
       },
     });

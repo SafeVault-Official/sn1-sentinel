@@ -14,10 +14,11 @@ import {
   registerReferralJoin,
   tradeToken,
 } from '../mock-blockchain/mockBlockchainService';
+import { appEnv } from '../src/config/env';
 
 export const tokenFactoryPlaceholder = {
   contractName: 'SNL1TokenFactory',
-  contractAddress: '0x0000000000000000000000000000000000000000',
+  contractAddress: appEnv.tokenFactoryAddress,
   createTokenMethod: 'createToken(string name, string symbol, uint256 totalSupply, string metadataURI)',
   buyMethod: 'buyToken(address tokenAddress, uint256 amount)',
   sellMethod: 'sellToken(address tokenAddress, uint256 amount)',
