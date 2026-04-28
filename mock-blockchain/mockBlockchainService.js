@@ -5,6 +5,7 @@ const DEFAULT_BASE_PRICE = 0.01;
 const DEFAULT_CURVE_K = 0.0001;
 const PRICE_DECIMALS = 6;
 
+// --- YARDIMCI FONKSİYONLAR ---
 const round = (value, decimals = 2) => Number(value.toFixed(decimals));
 const randomFloat = (min, max) => Number((Math.random() * (max - min) + min).toFixed(2));
 
@@ -20,24 +21,7 @@ const assertPositiveInt = (amount, label = 'Amount') => {
   }
 };
 
-const initializeWallet = (walletAddress, state) => {
-  assertAddress(walletAddress);
-
-  if (!state.wallets[walletAddress]) {
-    state.wallets[walletAddress] = {
-      usdBalance: randomFloat(2, 1600),
-      snl1Balance: randomFloat(1000, 250000),
-      tokenBalances: {},
-      createdAt: new Date().toISOString(),
-    };
-  }
-
-  if (!state.wallets[walletAddress].tokenBalances) {
-    state.wallets[walletAddress].tokenBalances = {};
-  }
-
-  return state;
-};
+// --- CORE LOGIC (BONDING CURVE & SOCIAL) ---
 
 const getCurvePrice = (basePrice, curveK, supply) => round(basePrice + curveK * supply, PRICE_DECIMALS);
 
@@ -64,10 +48,59 @@ const mapTokenToMarketData = (token, wallets) => {
     ...token,
     currentPrice,
     marketCap,
-    holders: getHolderCount(wallets, token.tokenAddress),
+    holdersCount: getHolderCount(wallets, token.tokenAddress), // main dalındaki holders dizisiyle çakışmaması için isimlendirme güncellendi
     platformFeeRate: PLATFORM_FEE_RATE,
   };
 };
+
+const pushActivity = (draft, type, message, payload = {}) => {
+  draft.activity.unshift({
+    id: crypto.randomUUID(),
+    type,
+    message,
+    timestamp: new Date().toISOString(),
+    payload,
+  });
+  draft.activity = draft.activity.slice(0, 250);
+};
+
+const addNotification = (draft, walletAddress, title, body) => {
+  if (!walletAddress) return;
+  if (!draft.notifications[walletAddress]) draft.notifications[walletAddress] = [];
+  draft.notifications[walletAddress].unshift({
+    id: crypto.randomUUID(),
+    title,
+    body,
+    timestamp: new Date().toISOString(),
+    read: false,
+  });
+  draft.notifications[walletAddress] = draft.notifications[walletAddress].slice(0, 50);
+};
+
+const unlockAchievement = (draft, walletAddress, key) => {
+  if (!walletAddress) return;
+  if (!draft.achievements[walletAddress]) draft.achievements[walletAddress] = [];
+  if (draft.achievements[walletAddress].includes(key)) return;
+  draft.achievements[walletAddress].push(key);
+};
+
+const initializeWallet = (walletAddress, state) => {
+  assertAddress(walletAddress);
+  if (!state.wallets[walletAddress]) {
+    state.wallets[walletAddress] = {
+      usdBalance: randomFloat(2, 1600),
+      snl1Balance: randomFloat(1000, 250000),
+      tokenBalances: {},
+      createdAt: new Date().toISOString(),
+    };
+  }
+  if (!state.wallets[walletAddress].tokenBalances) {
+    state.wallets[walletAddress].tokenBalances = {};
+  }
+  return state;
+};
+
+// --- EXPORTED ACTIONS ---
 
 export const getBalance = async (walletAddress) => {
   const state = updateState((draft) => initializeWallet(walletAddress, draft));
@@ -82,19 +115,12 @@ export const createToken = async (tokenPayload) => {
   assertAddress(tokenPayload?.creatorWallet);
   assertPositiveInt(supply, 'Initial supply');
 
-  if (!Number.isFinite(basePrice) || basePrice <= 0) {
-    throw new Error('Base price must be greater than 0.');
-  }
-
-  if (!Number.isFinite(curveK) || curveK <= 0) {
-    throw new Error('Curve growth factor must be greater than 0.');
-  }
-
   const tokenAddress = buildTokenAddress(tokenPayload.symbol || 'token');
   const timestamp = new Date().toISOString();
 
   const token = {
     id: crypto.randomUUID(),
+    ...tokenPayload,
     tokenAddress,
     name: tokenPayload.name,
     symbol: String(tokenPayload.symbol || '').toUpperCase(),
@@ -105,6 +131,7 @@ export const createToken = async (tokenPayload) => {
     basePrice: round(basePrice, PRICE_DECIMALS),
     curveK: round(curveK, PRICE_DECIMALS),
     reserveBalance: round(basePrice * supply, PRICE_DECIMALS),
+    holders: [tokenPayload.creatorWallet],
     createdAt: timestamp,
     timestamp,
   };
@@ -112,22 +139,19 @@ export const createToken = async (tokenPayload) => {
   updateState((draft) => {
     initializeWallet(token.creatorWallet, draft);
     draft.tokens.unshift(token);
+    
+    // Token bakiyesini ekle
     draft.wallets[token.creatorWallet].tokenBalances[tokenAddress] =
       (draft.wallets[token.creatorWallet].tokenBalances[tokenAddress] || 0) + supply;
+
+    // Sosyal özellikleri tetikle
+    unlockAchievement(draft, token.creatorWallet, 'first_token_created');
+    pushActivity(draft, 'token_created', `${token.creatorWallet.slice(0, 6)} created ${token.symbol}`, { tokenId: token.id });
+    addNotification(draft, token.creatorWallet, 'Token launched', `${token.name} is now live.`);
     return draft;
   });
 
   return token;
-};
-
-export const getTokens = async (walletAddress) => {
-  const state = readState();
-  return state.tokens.filter((token) => token.creatorWallet === walletAddress).map((token) => mapTokenToMarketData(token, state.wallets));
-};
-
-export const getTradableTokens = async () => {
-  const state = readState();
-  return state.tokens.map((token) => mapTokenToMarketData(token, state.wallets));
 };
 
 export const buyToken = async ({ tokenAddress, walletAddress, amount }) => {
@@ -152,134 +176,24 @@ export const buyToken = async ({ tokenAddress, walletAddress, amount }) => {
     const totalCost = round(grossCost + fee, PRICE_DECIMALS);
 
     if (draft.wallets[walletAddress].snl1Balance < totalCost) {
-      throw new Error('Insufficient SNL1 balance for buy + fee.');
+      throw new Error('Insufficient SNL1 balance.');
     }
 
+    // Bakiyeleri güncelle
     draft.wallets[walletAddress].snl1Balance = round(draft.wallets[walletAddress].snl1Balance - totalCost, PRICE_DECIMALS);
-    draft.wallets[walletAddress].tokenBalances[tokenAddress] =
-      (draft.wallets[walletAddress].tokenBalances[tokenAddress] || 0) + amount;
+    draft.wallets[walletAddress].tokenBalances[tokenAddress] = (draft.wallets[walletAddress].tokenBalances[tokenAddress] || 0) + amount;
 
+    // Token verilerini güncelle
     token.circulatingSupply += amount;
     token.reserveBalance = round(token.reserveBalance + grossCost, PRICE_DECIMALS);
     draft.treasury.snl1FeesCollected = round(draft.treasury.snl1FeesCollected + fee, PRICE_DECIMALS);
 
+    if (!token.holders.includes(walletAddress)) token.holders.push(walletAddress);
+
+    // Kayıtlar ve Sosyal
     draft.trades.unshift({
       id: crypto.randomUUID(),
       tokenAddress,
       walletAddress,
       side: 'buy',
       amount,
-      grossCost,
-      fee,
-      totalCost,
-      timestamp: new Date().toISOString(),
-    });
-
-    return draft;
-  });
-
-  const token = nextState.tokens.find((item) => item.tokenAddress === tokenAddress);
-  return {
-    token: mapTokenToMarketData(token, nextState.wallets),
-    wallet: nextState.wallets[walletAddress],
-    treasury: nextState.treasury,
-  };
-};
-
-export const sellToken = async ({ tokenAddress, walletAddress, amount }) => {
-  assertAddress(walletAddress);
-  assertAddress(tokenAddress);
-  assertPositiveInt(amount);
-
-  const nextState = updateState((draft) => {
-    initializeWallet(walletAddress, draft);
-
-    const token = draft.tokens.find((item) => item.tokenAddress === tokenAddress);
-    if (!token) throw new Error('Token not found.');
-
-    const walletTokens = draft.wallets[walletAddress].tokenBalances[tokenAddress] || 0;
-    if (walletTokens < amount) {
-      throw new Error('Insufficient token balance to sell.');
-    }
-
-    if (token.circulatingSupply - amount < 0) {
-      throw new Error('Sell amount exceeds circulating supply.');
-    }
-
-    const grossPayout = computeSellGrossPayout({
-      basePrice: token.basePrice,
-      curveK: token.curveK,
-      currentSupply: token.circulatingSupply,
-      amount,
-    });
-
-    if (token.reserveBalance < grossPayout) {
-      throw new Error('Insufficient reserve liquidity.');
-    }
-
-    const fee = round(grossPayout * PLATFORM_FEE_RATE, PRICE_DECIMALS);
-    const netPayout = round(grossPayout - fee, PRICE_DECIMALS);
-
-    draft.wallets[walletAddress].tokenBalances[tokenAddress] = walletTokens - amount;
-    draft.wallets[walletAddress].snl1Balance = round(draft.wallets[walletAddress].snl1Balance + netPayout, PRICE_DECIMALS);
-
-    token.circulatingSupply -= amount;
-    token.reserveBalance = round(token.reserveBalance - grossPayout, PRICE_DECIMALS);
-    draft.treasury.snl1FeesCollected = round(draft.treasury.snl1FeesCollected + fee, PRICE_DECIMALS);
-
-    draft.trades.unshift({
-      id: crypto.randomUUID(),
-      tokenAddress,
-      walletAddress,
-      side: 'sell',
-      amount,
-      grossPayout,
-      fee,
-      netPayout,
-      timestamp: new Date().toISOString(),
-    });
-
-    return draft;
-  });
-
-  const token = nextState.tokens.find((item) => item.tokenAddress === tokenAddress);
-  return {
-    token: mapTokenToMarketData(token, nextState.wallets),
-    wallet: nextState.wallets[walletAddress],
-    treasury: nextState.treasury,
-  };
-};
-
-export const transferMockToken = async ({ fromWallet, toWallet, amount }) => {
-  if (!fromWallet || !toWallet || !amount || amount <= 0) {
-    throw new Error('Invalid transfer payload.');
-  }
-
-  const nextState = updateState((draft) => {
-    initializeWallet(fromWallet, draft);
-    initializeWallet(toWallet, draft);
-
-    if (draft.wallets[fromWallet].snl1Balance < amount) {
-      throw new Error('Insufficient SNL1 balance.');
-    }
-
-    draft.wallets[fromWallet].snl1Balance = Number((draft.wallets[fromWallet].snl1Balance - amount).toFixed(2));
-    draft.wallets[toWallet].snl1Balance = Number((draft.wallets[toWallet].snl1Balance + amount).toFixed(2));
-    draft.transfers.unshift({
-      id: crypto.randomUUID(),
-      fromWallet,
-      toWallet,
-      amount,
-      timestamp: new Date().toISOString(),
-    });
-
-    return draft;
-  });
-
-  return {
-    from: nextState.wallets[fromWallet],
-    to: nextState.wallets[toWallet],
-  };
-};
-
-export const getTreasurySnapshot = async () => readState().treasury;
