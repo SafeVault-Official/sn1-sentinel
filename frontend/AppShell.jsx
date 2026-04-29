@@ -250,20 +250,20 @@ export default function AppShell() {
         {!isAuthenticated ? (
           <section className="mx-auto max-w-xl rounded-3xl border border-cyan-400/30 bg-slate-900/85 p-6 text-center shadow-2xl shadow-cyan-900/20 backdrop-blur">
             <p className="text-xs uppercase tracking-[0.25em] text-cyan-300/80">Welcome Pilot</p>
-            <h2 className="mt-2 text-3xl font-bold text-cyan-300">SN1’e giriş yap</h2>
-            <p className="mt-2 text-sm text-slate-300">Önce tatlı bir giriş, sonra cüzdan bağlama ve coin çıkarma paneli ✨</p>
+            <h2 className="mt-2 text-3xl font-bold text-cyan-300">Launch your coin on SN1</h2>
+            <p className="mt-2 text-sm text-slate-300">Pump.fun-style flow: pick your pilot name, connect wallet, then launch and trade instantly. ✨</p>
             <form className="mt-5 space-y-3" onSubmit={handleLogin}>
               <input
                 value={pilotName}
                 onChange={(e) => setPilotName(e.target.value)}
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-400"
-                placeholder="Pilot adı (opsiyonel)"
+                placeholder="Pilot name (optional)"
               />
               <button
                 type="submit"
-                className="w-full rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-3 font-bold text-slate-950 transition hover:brightness-110"
+                className="w-full cursor-pointer rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-3 font-bold text-slate-950 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-cyan-300"
               >
-                Dashboard’a geç
+                Enter dashboard
               </button>
             </form>
           </section>
