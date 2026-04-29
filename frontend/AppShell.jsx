@@ -48,6 +48,8 @@ const MiniChart = ({ data = [] }) => {
 
 export default function AppShell() {
   const { session, wallets, availability, connect, disconnect, refreshBalance } = useWalletSession();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pilotName, setPilotName] = useState('');
   const [dashboard, setDashboard] = useState({ profile: null, tokens: [] });
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [reloadError, setReloadError] = useState('');
@@ -188,6 +190,11 @@ export default function AppShell() {
     }
   };
 
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setIsAuthenticated(true);
+  };
+
   return (
     <main className="sn1-live-bg min-h-screen p-6 text-slate-100">
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
@@ -240,7 +247,27 @@ export default function AppShell() {
           ) : null}
         </header>
 
-        {session.isConnected ? (
+        {!isAuthenticated ? (
+          <section className="mx-auto max-w-xl rounded-3xl border border-cyan-400/30 bg-slate-900/85 p-6 text-center shadow-2xl shadow-cyan-900/20 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.25em] text-cyan-300/80">Welcome Pilot</p>
+            <h2 className="mt-2 text-3xl font-bold text-cyan-300">SN1’e giriş yap</h2>
+            <p className="mt-2 text-sm text-slate-300">Önce tatlı bir giriş, sonra cüzdan bağlama ve coin çıkarma paneli ✨</p>
+            <form className="mt-5 space-y-3" onSubmit={handleLogin}>
+              <input
+                value={pilotName}
+                onChange={(e) => setPilotName(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-400"
+                placeholder="Pilot adı (opsiyonel)"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-3 font-bold text-slate-950 transition hover:brightness-110"
+              >
+                Dashboard’a geç
+              </button>
+            </form>
+          </section>
+        ) : session.isConnected ? (
           <section className="grid gap-4 lg:grid-cols-3">
             <div className="space-y-4">
               <AvatarBadge avatar={dashboard.profile?.avatar} />
@@ -333,8 +360,9 @@ export default function AppShell() {
             wallets={wallets}
             availability={availability}
             onConnect={handleConnect}
-            connectingType={session.status === 'connecting' ? session.walletType : ''}
+            connectingType={session.status === 'connecting' ? (session.walletType || 'pending') : ''}
             error={connectError}
+            pilotName={pilotName}
           />
         )}
       </div>
