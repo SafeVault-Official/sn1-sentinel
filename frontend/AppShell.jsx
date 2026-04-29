@@ -189,9 +189,21 @@ export default function AppShell() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
+    <main className="sn1-live-bg min-h-screen p-6 text-slate-100">
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="orb orb-cyan" />
+        <div className="orb orb-green" />
+        <div className="grid-overlay" />
+      </div>
       <div className="mx-auto max-w-7xl space-y-4">
-        <header className="rounded-2xl border border-slate-700 bg-slate-900 p-4">
+        <header className="rounded-2xl border border-cyan-400/30 bg-slate-900/80 p-4 backdrop-blur">
+          <div className="mb-3 flex items-center gap-3">
+            <img src="/sn1-icon.svg" alt="SN1 Sentinel" className="h-10 w-10 rounded-lg border border-cyan-400/30 bg-slate-950 p-1" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-cyan-300/80">SN1 Sentinel</p>
+              <p className="text-[11px] text-slate-400">Live launchpad control center</p>
+            </div>
+          </div>
           <div className="flex justify-between items-start">
             <div>
               <h1 className="text-2xl font-bold text-cyan-400">SNL1 Growth & Bonding Engine</h1>
